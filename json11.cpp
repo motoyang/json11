@@ -300,6 +300,8 @@ const Json & JsonArray::operator[] (size_t i) const {
  */
 
 bool Json::operator== (const Json &other) const {
+    if (m_ptr == other.m_ptr)
+        return true;
     if (m_ptr->type() != other.m_ptr->type())
         return false;
 
@@ -307,6 +309,8 @@ bool Json::operator== (const Json &other) const {
 }
 
 bool Json::operator< (const Json &other) const {
+    if (m_ptr == other.m_ptr)
+        return false;
     if (m_ptr->type() != other.m_ptr->type())
         return m_ptr->type() < other.m_ptr->type();
 
@@ -384,16 +388,12 @@ struct JsonParser final {
       if (str[i] == '/') {
         i++;
         if (i == str.size())
-          return fail("unexpected end of input inside comment", false);
+          return fail("unexpected end of input after start of comment", false);
         if (str[i] == '/') { // inline comment
           i++;
-          if (i == str.size())
-            return fail("unexpected end of input inside inline comment", false);
-          // advance until next line
-          while (str[i] != '\n') {
+          // advance until next line, or end of input
+          while (i < str.size() && str[i] != '\n') {
             i++;
-            if (i == str.size())
-              return fail("unexpected end of input inside inline comment", false);
           }
           comment_found = true;
         }
@@ -409,9 +409,6 @@ struct JsonParser final {
                 "unexpected end of input inside multi-line comment", false);
           }
           i += 2;
-          if (i == str.size())
-            return fail(
-              "unexpected end of input inside multi-line comment", false);
           comment_found = true;
         }
         else
@@ -430,6 +427,7 @@ struct JsonParser final {
         bool comment_found = false;
         do {
           comment_found = consume_comment();
+          if (failed) return;
           consume_whitespace();
         }
         while(comment_found);
@@ -443,6 +441,7 @@ struct JsonParser final {
      */
     char get_next_token() {
         consume_garbage();
+        if (failed) return (char)0;
         if (i == str.size())
             return fail("unexpected end of input", (char)0);
 
@@ -736,6 +735,8 @@ Json Json::parse(const string &in, string &err, JsonParse strategy) {
 
     // Check for any trailing garbage
     parser.consume_garbage();
+    if (parser.failed)
+        return Json();
     if (parser.i != in.size())
         return parser.fail("unexpected trailing " + esc(in[parser.i]));
 
@@ -752,10 +753,14 @@ vector<Json> Json::parse_multi(const string &in,
     vector<Json> json_vec;
     while (parser.i != in.size() && !parser.failed) {
         json_vec.push_back(parser.parse_json(0));
+        if (parser.failed)
+            break;
+
         // Check for another object
         parser.consume_garbage();
-        if (!parser.failed)
-            parser_stop_pos = parser.i;
+        if (parser.failed)
+            break;
+        parser_stop_pos = parser.i;
     }
     return json_vec;
 }
